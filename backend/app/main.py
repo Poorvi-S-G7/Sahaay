@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from backend.app.services.scam_service import analyze_message
+from backend.app.services.scam_service import analyze_message, training_metrics
 from backend.app.services.payment_service import validate_payment
 from backend.app.services.scheme_service import match_schemes as match_scheme_records
 from .services.assistant_service import AssistantService
@@ -25,6 +25,7 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], all
 @app.on_event('startup')
 def startup():
     init_schema()
+    training_metrics()
 
 profile = {'id':'u1','name':'Meera Sharma','language':'English','state':'Karnataka','age_group':'25-40','occupation':'Working adult','income_category':'Lower middle income','student_status':'Employed','safety_reminders':True}
 contacts = [

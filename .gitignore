@@ -4,6 +4,7 @@ frontend/tsconfig.tsbuildinfo
 __pycache__/
 *.pyc
 *.sqlite3
+backend/app/services/artifacts/
 .venv/
 .env
 .env.*
