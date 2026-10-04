@@ -7,6 +7,8 @@ RULES = [
     (r'block|suspend|close your account', 'It threatens account blocking or suspension.'),
     (r'prize|reward|lottery|won', 'It uses a prize or reward claim.'),
     (r'verify your (account|identity)|kyc', 'It asks for sensitive account or identity details.'),
+    (r'bank manager|customer care|support team|official|income tax|police', 'It may be impersonating a trusted organisation or authority.'),
+    (r'account number|card number|cvv|financial details|bank details', 'It asks for sensitive financial information.'),
 ]
 
 def analyze_message(text: str) -> dict:

@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from backend.app.services.scam_service import analyze_message
+from backend.app.services.assistant_service import AssistantService
 
 ROOT = Path(__file__).resolve().parents[2]
 app = FastAPI(title='Sahaay API', version='0.1.0')
@@ -29,8 +30,11 @@ transactions: list[dict[str, Any]] = [
 alerts = [
     {'id':'a1','title':'Payment needs your confirmation','detail':'A simulated payment to Ravi is waiting for your review.','severity':'medium','time':'Just now'},
     {'id':'a2','title':'Keep your OTP private','detail':'Sahaay will never ask for your OTP, PIN, or password.','severity':'low','time':'Today'},
+    {'id':'a3','title':'Suspicious message detected','detail':'A recent message included urgent language and a request for private information.','severity':'high','time':'Yesterday'},
+    {'id':'a4','title':'Unusual transaction to review','detail':'A simulated payment is outside your usual pattern. Check the recipient before confirming.','severity':'medium','time':'Yesterday'},
 ]
 pending: dict[str, dict[str, Any]] = {}
+assistant_service = AssistantService()
 
 class AskRequest(BaseModel): message: str = Field(min_length=1, max_length=1000)
 class ScamRequest(BaseModel): text: str = Field(min_length=1, max_length=5000)
@@ -60,6 +64,9 @@ def get_contacts(): return {'contacts':contacts}
 @app.post('/api/ask')
 def ask(req: AskRequest):
     text = req.message.lower()
+    gemini_answer = assistant_service.try_answer(req.message, {'balance': 24850, 'recent_transactions': transactions[:4]})
+    if gemini_answer:
+        return {'answer': gemini_answer, 'intent': {'name': 'gemini_explanation'}}
     if any(x in text for x in ['send','pay','transfer']) and any(x in text for x in ['ravi','anita','kiran']):
         recipient = next((c['name'] for c in contacts if c['name'].split()[0].lower() in text), 'your contact')
         amount = re.search(r'(?:₹|rs\.?|inr\s*)(\d+(?:\.\d+)?)', text)
