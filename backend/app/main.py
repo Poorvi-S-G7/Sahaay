@@ -9,13 +9,20 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from backend.app.services.scam_service import analyze_message
-from backend.app.services.assistant_service import AssistantService
+from backend.app.services.payment_service import validate_payment
+from backend.app.services.scheme_service import match_schemes as match_scheme_records
+from .services.assistant_service import AssistantService
+from .db import database_enabled, init_schema
 
 ROOT = Path(__file__).resolve().parents[2]
 app = FastAPI(title='Sahaay API', version='0.1.0')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
 
-profile = {'id':'u1','name':'Meera Sharma','language':'English','state':'Karnataka','age_group':'25-40','occupation':'Working adult','income_category':'Lower middle income','student_status':'Employed'}
+@app.on_event('startup')
+def startup():
+    init_schema()
+
+profile = {'id':'u1','name':'Meera Sharma','language':'English','state':'Karnataka','age_group':'25-40','occupation':'Working adult','income_category':'Lower middle income','student_status':'Employed','safety_reminders':True}
 contacts = [
     {'id':'c1','name':'Ravi Kumar','relation':'Brother','initials':'RK'},
     {'id':'c2','name':'Anita Sharma','relation':'Neighbour','initials':'AS'},
@@ -28,10 +35,10 @@ transactions: list[dict[str, Any]] = [
     {'id':'t4','merchant':'Metro Recharge','category':'Bills','amount':299,'direction':'expense','date':'29 Sep 2026','note':'Mobile recharge'},
 ]
 alerts = [
-    {'id':'a1','title':'Payment needs your confirmation','detail':'A simulated payment to Ravi is waiting for your review.','severity':'medium','time':'Just now'},
-    {'id':'a2','title':'Keep your OTP private','detail':'Sahaay will never ask for your OTP, PIN, or password.','severity':'low','time':'Today'},
-    {'id':'a3','title':'Suspicious message detected','detail':'A recent message included urgent language and a request for private information.','severity':'high','time':'Yesterday'},
-    {'id':'a4','title':'Unusual transaction to review','detail':'A simulated payment is outside your usual pattern. Check the recipient before confirming.','severity':'medium','time':'Yesterday'},
+    {'id':'a1','alert_type':'payment_confirmation','title':'Payment needs your confirmation','detail':'A simulated payment to Ravi is waiting for your review.','severity':'medium','time':'Just now'},
+    {'id':'a2','alert_type':'security_recommendation','title':'Keep your OTP private','detail':'Sahaay will never ask for your OTP, PIN, or password.','severity':'low','time':'Today'},
+    {'id':'a3','alert_type':'suspicious_message','title':'Suspicious message detected','detail':'A recent message included urgent language and a request for private information.','severity':'high','time':'Yesterday'},
+    {'id':'a4','alert_type':'unusual_transaction','title':'Unusual transaction to review','detail':'A simulated payment is outside your usual pattern. Check the recipient before confirming.','severity':'medium','time':'Yesterday'},
 ]
 pending: dict[str, dict[str, Any]] = {}
 assistant_service = AssistantService()
@@ -49,7 +56,7 @@ schemes = [
 ]
 
 @app.get('/api/health')
-def health(): return {'status':'ok','service':'sahaay-api','mode':'simulated'}
+def health(): return {'status':'ok','service':'sahaay-api','mode':'simulated','database':'configured' if database_enabled() else 'demo-memory'}
 @app.get('/api/profile')
 def get_profile(): return profile
 @app.patch('/api/profile')
@@ -84,8 +91,7 @@ def scam_check(req: ScamRequest):
 
 @app.post('/api/payments/prepare')
 def prepare_payment(req: PaymentPrepare):
-    contact=next((c for c in contacts if c['id']==req.contact_id),None)
-    if not contact: raise HTTPException(404,'Recipient not found')
+    contact=validate_payment(contacts, req.contact_id, req.amount)
     token=secrets.token_urlsafe(18); pending[token]={'contact':contact,'amount':req.amount}; return {'contact':contact,'amount':req.amount,'confirmation_token':token,'safety_check':'Recipient and amount validated. Explicit confirmation required.'}
 @app.post('/api/payments/confirm')
 def confirm_payment(req: PaymentConfirm):
@@ -97,10 +103,7 @@ def confirm_payment(req: PaymentConfirm):
 def get_schemes(): return {'schemes':schemes,'notice':'Sample references only. Verify current details on the official source.'}
 @app.post('/api/schemes/match')
 def match_schemes(req: SchemeMatch):
-    occupation=req.occupation.lower(); matches=schemes
-    if 'student' in occupation: matches=[schemes[2]]
-    elif 'vendor' in occupation: matches=[schemes[0]]
-    elif 'farmer' in occupation: matches=[schemes[1]]
+    matches=match_scheme_records(schemes, req.state, req.age_group, req.occupation, req.income_category, req.student_status)
     return {'matches':matches,'profile':req.model_dump()}
 @app.get('/api/alerts')
 def get_alerts(): return {'alerts':alerts}

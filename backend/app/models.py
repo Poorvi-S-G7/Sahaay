@@ -59,6 +59,7 @@ class SafetyAlert(Base):
     __tablename__ = 'safety_alerts'
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey('users.id'))
+    alert_type: Mapped[str] = mapped_column(String(40), default='security_recommendation')
     title: Mapped[str] = mapped_column(String(160))
     detail: Mapped[str] = mapped_column(Text)
     severity: Mapped[str] = mapped_column(String(20))

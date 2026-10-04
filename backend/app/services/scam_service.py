@@ -2,7 +2,7 @@ import re
 
 RULES = [
     (r'otp|one[- ]time password|pin|password', 'This message asks for an OTP, PIN, or password.'),
-    (r'https?://|www\\.', 'It includes a link that should be verified before opening.'),
+    (r'https?://|www\.', 'It includes a link that should be verified before opening.'),
     (r'urgent|immediately|act now|today', 'It creates pressure to act quickly.'),
     (r'block|suspend|close your account', 'It threatens account blocking or suspension.'),
     (r'prize|reward|lottery|won', 'It uses a prize or reward claim.'),
