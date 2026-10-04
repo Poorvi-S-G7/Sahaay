@@ -18,6 +18,7 @@ def seed_demo_data() -> None:
         if db.scalar(select(User).where(User.id == 'u1')):
             return
         db.add(User(id='u1', name='Meera Sharma', language='English', state='Karnataka', age_group='25-40', occupation='Working adult', income_category='Lower middle income', student_status='Employed', safety_reminders=True))
+        db.flush()
         db.add(Account(id='ac1', user_id='u1', label='Demo account', balance=24850, currency='INR'))
         db.add_all([
             Contact(id='c1', user_id='u1', name='Ravi Kumar', relation='Brother'),

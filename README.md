@@ -26,7 +26,7 @@ For frontend hot reload, run `npm run dev` in `frontend/` and use the Vite proxy
 
 ## Environment
 
-Copy `.env.example` to `.env`. The Preview uses a local SQLite demo database (`sahaay_demo.sqlite3`) when no supported PostgreSQL URL is supplied, so confirmed simulated payments and profile preferences persist across API calls and restarts. For PostgreSQL, create a database such as `createdb sahaay`, set `DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/sahaay`, and start FastAPI; the startup hook creates the same tables from `backend/app/models.py`. `GEMINI_API_KEY` enables the isolated Gemini adapter; if it is absent or unavailable, the assistant uses the safe deterministic fallback.
+Copy `.env.example` to `.env`. The Preview uses the configured managed MySQL database when a `mysql://` URL is present, and supports PostgreSQL via `postgresql+psycopg://`. In either case, the startup hook creates the same tables from `backend/app/models.py` and seeds realistic demo data. SQLite (`sahaay_demo.sqlite3`) remains the local fallback when no database URL is supplied. `GEMINI_API_KEY` enables the isolated Gemini adapter; if it is absent or unavailable, the assistant uses the safe deterministic fallback.
 
 ## Safety architecture
 
