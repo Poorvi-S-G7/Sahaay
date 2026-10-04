@@ -14,6 +14,8 @@ class User(Base):
     age_group: Mapped[str] = mapped_column(String(40), default='25-40')
     occupation: Mapped[str] = mapped_column(String(80), default='Working adult')
     income_category: Mapped[str] = mapped_column(String(80), default='Lower middle income')
+    student_status: Mapped[str] = mapped_column(String(40), default='Employed')
+    safety_reminders: Mapped[bool] = mapped_column(Boolean, default=True)
 
 class Account(Base):
     __tablename__ = 'accounts'
@@ -63,5 +65,6 @@ class SafetyAlert(Base):
     title: Mapped[str] = mapped_column(String(160))
     detail: Mapped[str] = mapped_column(Text)
     severity: Mapped[str] = mapped_column(String(20))
+    time: Mapped[str] = mapped_column(String(40), default='Today')
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

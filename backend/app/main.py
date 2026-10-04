@@ -12,9 +12,13 @@ from backend.app.services.scam_service import analyze_message
 from backend.app.services.payment_service import validate_payment
 from backend.app.services.scheme_service import match_schemes as match_scheme_records
 from .services.assistant_service import AssistantService
-from .db import database_enabled, init_schema
+from .db import database_enabled, database_mode, init_schema
+from .services.storage import add_transaction, contacts as stored_contacts, dashboard as stored_dashboard, profile as stored_profile, safety_alerts as stored_alerts, transactions as stored_transactions, update_profile as stored_update_profile
 
 ROOT = Path(__file__).resolve().parents[2]
+def money(value: float) -> str:
+    return f'₹{value:,.0f}'
+
 app = FastAPI(title='Sahaay API', version='0.1.0')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
 
@@ -56,32 +60,38 @@ schemes = [
 ]
 
 @app.get('/api/health')
-def health(): return {'status':'ok','service':'sahaay-api','mode':'simulated','database':'configured' if database_enabled() else 'demo-memory'}
+def health(): return {'status':'ok','service':'sahaay-api','mode':'simulated','database':database_mode() if database_enabled() else 'unavailable'}
 @app.get('/api/profile')
-def get_profile(): return profile
+def get_profile(): return stored_profile()
 @app.patch('/api/profile')
-def patch_profile(data: dict[str, Any]): profile.update({k:v for k,v in data.items() if k in profile}); return profile
+def patch_profile(data: dict[str, Any]): return stored_update_profile(data)
 @app.get('/api/dashboard')
-def dashboard(): return {'balance':24850,'income':18500,'expenses':sum(t['amount'] for t in transactions if t['direction']=='expense'),'safe_to_spend':12640,'transactions':transactions[:4],'alerts':alerts}
+def dashboard(): return stored_dashboard()
 @app.get('/api/transactions')
-def get_transactions(limit: int=20): return {'balance':24850,'transactions':transactions[:max(1,min(limit,100))]}
+def get_transactions(limit: int=20):
+    data = stored_dashboard()
+    return {'balance':data['balance'],'income':data['income'],'expenses':data['expenses'],'transactions':stored_transactions(limit)}
 @app.get('/api/contacts')
-def get_contacts(): return {'contacts':contacts}
+def get_contacts(): return {'contacts':stored_contacts()}
 
 @app.post('/api/ask')
 def ask(req: AskRequest):
     text = req.message.lower()
-    gemini_answer = assistant_service.try_answer(req.message, {'balance': 24850, 'recent_transactions': transactions[:4]})
+    current = stored_dashboard()
+    recent = stored_transactions(4)
+    gemini_answer = assistant_service.try_answer(req.message, {'balance': current['balance'], 'income': current['income'], 'expenses': current['expenses'], 'recent_transactions': recent})
     if gemini_answer:
         return {'answer': gemini_answer, 'intent': {'name': 'gemini_explanation'}}
+    available_contacts = stored_contacts()
     if any(x in text for x in ['send','pay','transfer']) and any(x in text for x in ['ravi','anita','kiran']):
-        recipient = next((c['name'] for c in contacts if c['name'].split()[0].lower() in text), 'your contact')
+        recipient = next((c['name'] for c in available_contacts if c['name'].split()[0].lower() in text), 'your contact')
         amount = re.search(r'(?:₹|rs\.?|inr\s*)(\d+(?:\.\d+)?)', text)
         value = f"₹{amount.group(1)}" if amount else 'the amount you choose'
         return {'answer':f'I can help prepare a simulated payment to {recipient} for {value}. I will not send it automatically. Open Payments to review the recipient and confirm the demo transaction yourself.','intent':{'name':'send_money','recipient':recipient,'amount':amount.group(1) if amount else None},'safe_action':'/payments'}
-    if 'spend' in text or 'expense' in text or 'month' in text: return {'answer':'You have spent ₹1,659 in the current demo month. That includes groceries, a mobile recharge, and a simulated family payment. I can show the full list in Transactions.','intent':{'name':'spending_summary'}}
-    if 'recent' in text or 'transaction' in text: return {'answer':'Your recent simulated activity includes ₹500 to Ravi Kumar, ₹860 at Fresh Basket, ₹18,500 income from Asha Textiles, and ₹299 for Metro Recharge.','intent':{'name':'recent_transactions'}}
+    if 'spend' in text or 'expense' in text or 'month' in text: return {'answer':f'You have spent {money(current["expenses"])} in the current demo month. I can show the full list in Transactions.','intent':{'name':'spending_summary'},'data':{'expenses':current['expenses']}}
+    if 'recent' in text or 'transaction' in text: return {'answer':'Your recent simulated activity includes ' + ', '.join(f'{money(t["amount"])} {"from" if t["direction"]=="income" else "to"} {t["merchant"]}' for t in recent) + '.','intent':{'name':'recent_transactions'},'data':{'transactions':recent}}
     if 'scam' in text or 'message' in text or 'otp' in text or 'pin' in text: return {'answer':'If a message asks for an OTP, PIN, password, urgent payment, or a suspicious link, pause. Do not reply or click. Paste it into Scam Check and verify through an official channel.','intent':{'name':'scam_check','safe_action':'/scam-check'}}
+    if 'payment' in text or 'transfer' in text: return {'answer':'A payment is a transfer of money to a recipient. In this demo, Sahaay only prepares the recipient and amount for your review; nothing moves until you explicitly confirm a simulated payment.','intent':{'name':'payment_explanation','safe_action':'/payments'}}
     if 'scheme' in text or 'eligible' in text: return {'answer':'I can help you explore a few sample references based on your profile. Open Government Schemes to compare the target group, documents, benefits, and official source. Always verify current eligibility on the official site.','intent':{'name':'scheme_match','safe_action':'/schemes'}}
     return {'answer':'I can help with spending, transactions, scam messages, payments, safety, and government schemes. Ask me in simple words — for example, “How much did I spend this month?”','intent':{'name':'general_help'}}
 
@@ -91,13 +101,13 @@ def scam_check(req: ScamRequest):
 
 @app.post('/api/payments/prepare')
 def prepare_payment(req: PaymentPrepare):
-    contact=validate_payment(contacts, req.contact_id, req.amount)
+    contact=validate_payment(stored_contacts(), req.contact_id, req.amount)
     token=secrets.token_urlsafe(18); pending[token]={'contact':contact,'amount':req.amount}; return {'contact':contact,'amount':req.amount,'confirmation_token':token,'safety_check':'Recipient and amount validated. Explicit confirmation required.'}
 @app.post('/api/payments/confirm')
 def confirm_payment(req: PaymentConfirm):
     item=pending.pop(req.confirmation_token,None)
     if not item: raise HTTPException(400,'Confirmation expired or already used')
-    tx={'id':f"t{len(transactions)+1}",'merchant':item['contact']['name'],'category':'Family','amount':item['amount'],'direction':'expense','date':'Just now','note':'Simulated payment'}; transactions.insert(0,tx); return {'status':'completed','simulated':True,'transaction':tx}
+    tx=add_transaction(item['contact']['id'], item['contact']['name'], item['amount']); return {'status':'completed','simulated':True,'transaction':tx}
 
 @app.get('/api/schemes')
 def get_schemes(): return {'schemes':schemes,'notice':'Sample references only. Verify current details on the official source.'}
@@ -106,7 +116,7 @@ def match_schemes(req: SchemeMatch):
     matches=match_scheme_records(schemes, req.state, req.age_group, req.occupation, req.income_category, req.student_status)
     return {'matches':matches,'profile':req.model_dump()}
 @app.get('/api/alerts')
-def get_alerts(): return {'alerts':alerts}
+def get_alerts(): return {'alerts':stored_alerts()}
 
 frontend = ROOT / 'frontend' / 'dist'
 if frontend.exists():
