@@ -13,9 +13,9 @@ RULES: list[dict[str, Any]] = [
     {"key": "suspicious_link", "pattern": r"https?://|www\.", "reason": "It includes a link that should be verified before opening.", "weight": 0.5},
     {"key": "urgency", "pattern": r"urgent|immediately|act now|today|final warning", "reason": "It creates pressure to act quickly.", "weight": 0.28},
     {"key": "account_threat", "pattern": r"block|blocked|suspend|suspended|close your account|lose access", "reason": "It threatens account blocking, suspension, or loss of access.", "weight": 0.58},
-    {"key": "prize_scam", "pattern": r"prize|reward|lottery|won|congratulations", "reason": "It uses a prize or reward claim.", "weight": 0.58},
+    {"key": "prize_scam", "pattern": r"lottery|won (?:a |the )?(?:cash )?(?:prize|reward)|cash (?:prize|reward)|claim (?:your )?(?:prize|reward)|(?:prize|reward).*(?:fee|otp|pin|send|link)|congratulations.*(?:won|claim)", "reason": "It uses a prize or reward claim.", "weight": 0.58},
     {"key": "kyc_request", "pattern": r"verify your (account|identity)|kyc|update your pan", "reason": "It asks for sensitive account or identity details.", "weight": 0.48},
-    {"key": "impersonation", "pattern": r"bank manager|customer care|support team|official|income tax|police|government", "reason": "It may be impersonating a trusted organisation or authority.", "weight": 0.42},
+    {"key": "impersonation", "pattern": r"bank manager|customer care|support team|income tax|police|government", "reason": "It may be impersonating a trusted organisation or authority.", "weight": 0.42},
     {"key": "financial_details_request", "pattern": r"account number|card number|cvv|financial details|bank details|upi pin", "reason": "It asks for sensitive financial information.", "weight": 0.64},
     {"key": "money_request", "pattern": r"send money|transfer money|send (?:a )?(?:small )?fee|pay (?:a )?fee|safe account", "reason": "It asks you to send money or pay an unexpected fee.", "weight": 0.52},
 ]
