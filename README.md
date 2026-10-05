@@ -7,6 +7,7 @@ Sahaay is a full-stack hackathon MVP for financial safety and accessibility. It 
 - `frontend/` — React, TypeScript, Vite and Tailwind UI.
 - `backend/app/main.py` — FastAPI routers, seeded demo repository, scam rules and confirmation-safe payment flow.
 - `public/manus-routes.json` — Preview route manifest.
+- `docs/VOICE_APK_READINESS.md` — multilingual voice architecture and future Capacitor/Android path.
 - `TODO.md` — approved MVP outcomes.
 
 ## Run locally

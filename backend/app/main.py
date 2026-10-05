@@ -4,10 +4,11 @@ import os, re, secrets
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+import httpx
 from pydantic import BaseModel, Field
 from backend.app.services.scam_service import analyze_message, training_metrics
 from backend.app.services.transaction_anomaly_service import analyze_transaction, warm_model
@@ -67,6 +68,41 @@ schemes = [
 
 @app.get('/api/health')
 def health(): return {'status':'ok','service':'sahaay-api','mode':'simulated','database':database_mode() if database_enabled() else 'unavailable'}
+
+@app.post('/api/voice/transcribe')
+async def transcribe_voice(file: UploadFile = File(...), language: str = 'English'):
+    supported = {'English', 'Hindi', 'Kannada', 'Telugu'}
+    if language not in supported:
+        raise HTTPException(400, 'Unsupported voice language')
+    if file.content_type not in {'audio/webm', 'audio/ogg', 'audio/wav', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a'}:
+        raise HTTPException(415, 'Unsupported audio format. Please record again.')
+    audio = await file.read()
+    if not audio or len(audio) > 10 * 1024 * 1024:
+        raise HTTPException(413, 'Recording is empty or too large. Please try a shorter recording.')
+    api_url = os.getenv('MANUS_API_URL')
+    api_key = os.getenv('MANUS_API_KEY')
+    if not api_url or not api_key:
+        raise HTTPException(503, 'Voice transcription is not configured. You can still use Sahaay by typing.')
+    prompt = f'Transcribe the user voice to text. The selected language is {language}. Preserve the words and numbers accurately.'
+    try:
+        async with httpx.AsyncClient(timeout=45) as client:
+            response = await client.post(
+                f'{api_url.rstrip("/")}/v1/audio/transcriptions',
+                headers={'Authorization': f'Bearer {api_key}'},
+                data={'model': 'whisper-1', 'prompt': prompt},
+                files={'file': (file.filename or 'recording.webm', audio, file.content_type)},
+            )
+        if response.status_code >= 400:
+            raise HTTPException(502, 'Voice transcription is temporarily unavailable. Please try again or type your question.')
+        payload = response.json()
+        text = (payload.get('text') or '').strip()
+        if not text:
+            raise HTTPException(422, 'Could not understand that recording. Please try again.')
+        return {'text': text, 'language': payload.get('language') or language}
+    except HTTPException:
+        raise
+    except httpx.HTTPError:
+        raise HTTPException(502, 'Voice transcription is temporarily unavailable. Please try again or type your question.')
 @app.get('/api/profile')
 def get_profile(): return stored_profile()
 @app.patch('/api/profile')

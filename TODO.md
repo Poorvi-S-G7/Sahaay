@@ -57,10 +57,20 @@
 - Ask Sahaay can explain why the most recent payment was flagged using the backend anomaly result, without making the anomaly decision or executing a financial action.
 - Automated coverage verifies a normal ₹500 payment, a large ₹25,000 payment, several historical transactions, payment blocking before acknowledgment, creation only after acknowledgment, Ask explanation, Scam Check regression, frontend build, and backend/API health.
 
-## 9. Full-stack architecture and delivery documentation
+## 9. Multilingual voice assistant and APK-compatible adapter
+- The existing Tap to Speak area supports Idle, Listening, Processing, Result/Speaking, Error, and cancel/stop states without redesigning the current UI.
+- Voice input uses a reusable `VoiceService` adapter: the web implementation captures audio with `MediaRecorder`, sends it to the backend transcription route, displays recognized text, and then submits that text to the existing Ask Sahaay API.
+- English, Hindi, Kannada, and Telugu are supported; the Profile preferred language controls transcription context and TTS output.
+- TTS playback is optional and isolated behind `VoiceService`; Play response and Stop response are available, and a TTS failure leaves the text answer visible.
+- Voice queries use the existing Ask Sahaay, backend validation, transaction anomaly detection, payment review, stronger confirmation, and simulated-only payment flow; voice cannot directly execute a financial action.
+- Microphone denial, unsupported capture, transcription failure, network failure, and TTS failure show friendly messages and do not crash the app or create transactions.
+- The implementation does not read SMS, store raw recordings, request OTP/PIN/password/CVV/banking credentials, use background listening, or require SMS permissions.
+- APK-readiness documentation describes the adapter boundary, STT/TTS method, supported languages, future Capacitor implementation, and eventual Android permissions.
+
+## 10. Full-stack architecture and delivery documentation
 - The frontend is React with Tailwind CSS and the backend is modular FastAPI with PostgreSQL-ready models/schema for Users, Accounts, Transactions, Contacts, Government Schemes, and Safety Alerts.
 - Frontend and backend are clearly separated, with modular assistant, scam, payment, scheme, alert, and data-access services.
 - API endpoints exist for Ask Sahaay, transactions, account balance/dashboard data, scam checking, contacts, simulated payments, government schemes, safety alerts, and user profile.
 - The application runs in managed Preview with FastAPI serving the built React app and `/api/health`, while development instructions support separate frontend/backend processes.
 - README documentation explains dependency installation, environment variables, Gemini configuration, PostgreSQL setup, starting FastAPI, starting React/Vite, the project folder structure, important files, and the simulated-only security boundary.
-- No real banking integration, real money movement, advanced multilingual voice, complex RAG, or anomaly detection beyond the lightweight Isolation Forest plus deterministic rules is attempted in this MVP.
+- No real banking integration, real money movement, complex RAG, or anomaly detection beyond the lightweight Isolation Forest plus deterministic rules is attempted in this MVP. Android APK packaging is documented but not performed.
