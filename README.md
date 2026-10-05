@@ -30,6 +30,8 @@ Copy `.env.example` to `.env`. The Preview uses the configured managed MySQL dat
 
 Scam Check uses a small simulated labeled corpus in `backend/app/services/scam_training_data.py` and a cached TF-IDF + Logistic Regression model in `backend/app/services/scam_ml.py`. The model is trained or loaded once during startup and saved under the ignored `backend/app/services/artifacts/` directory. The current holdout metrics are accuracy `0.875`, precision `1.0`, recall `0.75`, and F1 `0.8571`; these are MVP demo metrics, not production performance claims.
 
+Transaction anomaly detection uses `POST /api/transaction-anomaly-check` during payment preparation. It combines a cached scikit-learn Isolation Forest trained only on historical simulated expense transactions with deterministic rules for unusually large amounts, unusual timing, and high recent payment frequency. The API returns `anomaly_level`, `anomaly_score` (0–100), `is_anomaly`, `reasons`, and `recommended_action`. A suspicious or high-risk payment remains pending until the user explicitly acknowledges the warning; the detector never approves or executes a payment.
+
 ## Safety architecture
 
 Assistant requests become structured intent data only. Backend validation and safety checks happen before a review payload is returned. The simulated payment completion endpoint requires a server-issued confirmation token created by `/api/payments/prepare`, and only an explicit user confirmation calls `/api/payments/confirm`. No endpoint connects to a bank, UPI, or real money.

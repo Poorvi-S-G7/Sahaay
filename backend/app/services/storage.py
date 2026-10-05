@@ -69,6 +69,12 @@ def transactions(limit: int = 20) -> list[dict[str, Any]]:
         return [{'id':r.id,'merchant':r.merchant,'category':r.category,'amount':r.amount,'direction':r.direction,'date':r.created_at.strftime('%d %b %Y, %I:%M %p'),'note':r.note} for r in rows]
 
 
+def anomaly_history() -> list[dict[str, Any]]:
+    with _session() as db:
+        rows = db.scalars(select(Transaction).order_by(Transaction.created_at.asc())).all()
+        return [{'id':r.id,'merchant':r.merchant,'amount':r.amount,'direction':r.direction,'created_at':r.created_at} for r in rows]
+
+
 def dashboard() -> dict[str, Any]:
     with _session() as db:
         rows = db.scalars(select(Transaction)).all()

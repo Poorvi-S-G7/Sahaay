@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os, re, secrets
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from fastapi import FastAPI, HTTPException
@@ -9,11 +10,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from backend.app.services.scam_service import analyze_message, training_metrics
+from backend.app.services.transaction_anomaly_service import analyze_transaction, warm_model
 from backend.app.services.payment_service import validate_payment
 from backend.app.services.scheme_service import match_schemes as match_scheme_records
 from .services.assistant_service import AssistantService
 from .db import database_enabled, database_mode, init_schema
-from .services.storage import add_transaction, contacts as stored_contacts, dashboard as stored_dashboard, profile as stored_profile, safety_alerts as stored_alerts, transactions as stored_transactions, update_profile as stored_update_profile
+from .services.storage import add_transaction, anomaly_history, contacts as stored_contacts, dashboard as stored_dashboard, profile as stored_profile, safety_alerts as stored_alerts, transactions as stored_transactions, update_profile as stored_update_profile
 
 ROOT = Path(__file__).resolve().parents[2]
 def money(value: float) -> str:
@@ -26,6 +28,7 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], all
 def startup():
     init_schema()
     training_metrics()
+    warm_model(anomaly_history())
 
 profile = {'id':'u1','name':'Meera Sharma','language':'English','state':'Karnataka','age_group':'25-40','occupation':'Working adult','income_category':'Lower middle income','student_status':'Employed','safety_reminders':True}
 contacts = [
@@ -46,12 +49,14 @@ alerts = [
     {'id':'a4','alert_type':'unusual_transaction','title':'Unusual transaction to review','detail':'A simulated payment is outside your usual pattern. Check the recipient before confirming.','severity':'medium','time':'Yesterday'},
 ]
 pending: dict[str, dict[str, Any]] = {}
+last_anomaly: dict[str, Any] | None = None
 assistant_service = AssistantService()
 
 class AskRequest(BaseModel): message: str = Field(min_length=1, max_length=1000)
 class ScamRequest(BaseModel): text: str = Field(min_length=1, max_length=5000)
 class PaymentPrepare(BaseModel): contact_id: str; amount: float = Field(gt=0, le=100000)
-class PaymentConfirm(BaseModel): confirmation_token: str
+class PaymentConfirm(BaseModel): confirmation_token: str; anomaly_acknowledged: bool = False
+class AnomalyRequest(BaseModel): user_id: str = 'u1'; contact_id: str | None = None; amount: float = Field(gt=0, le=100000); transaction_time: datetime | None = None
 class SchemeMatch(BaseModel): state: str='Karnataka'; age_group: str='25-40'; occupation: str='Working adult'; income_category: str='Lower middle income'; student_status: str='Employed'
 
 schemes = [
@@ -80,6 +85,12 @@ def ask(req: AskRequest):
     text = req.message.lower()
     current = stored_dashboard()
     recent = stored_transactions(4)
+    if last_anomaly and any(word in text for word in ['flagged', 'unusual', 'anomaly', 'why was my payment']):
+        anomaly = last_anomaly['anomaly']
+        amount = last_anomaly['amount']
+        if anomaly['is_anomaly']:
+            return {'answer':f"This simulated payment of {money(amount)} was flagged because {' '.join(anomaly['reasons'])} Please verify the recipient and amount before continuing.", 'intent':{'name':'transaction_anomaly_explanation'}, 'data':{'anomaly':anomaly}}
+        return {'answer':f"This simulated payment of {money(amount)} was within your normal range, so it was not flagged. Review the recipient and amount before confirming.", 'intent':{'name':'transaction_anomaly_explanation'}, 'data':{'anomaly':anomaly}}
     gemini_answer = assistant_service.try_answer(req.message, {'balance': current['balance'], 'income': current['income'], 'expenses': current['expenses'], 'recent_transactions': recent})
     if gemini_answer:
         return {'answer': gemini_answer, 'intent': {'name': 'gemini_explanation'}}
@@ -101,15 +112,37 @@ def ask(req: AskRequest):
 def scam_check(req: ScamRequest):
     return analyze_message(req.text)
 
+def public_anomaly(result: dict[str, Any]) -> dict[str, Any]:
+    return {key: result[key] for key in ('anomaly_level', 'anomaly_score', 'is_anomaly', 'reasons', 'recommended_action')}
+
+@app.post('/api/transaction-anomaly-check')
+def transaction_anomaly_check(req: AnomalyRequest):
+    if req.user_id != 'u1':
+        raise HTTPException(404, 'Simulated user not found')
+    contact = next((item for item in stored_contacts() if item['id'] == req.contact_id), None)
+    result = analyze_transaction(anomaly_history(), req.amount, req.transaction_time, contact['name'] if contact else None)
+    return public_anomaly(result)
+
 @app.post('/api/payments/prepare')
 def prepare_payment(req: PaymentPrepare):
-    contact=validate_payment(stored_contacts(), req.contact_id, req.amount)
-    token=secrets.token_urlsafe(18); pending[token]={'contact':contact,'amount':req.amount}; return {'contact':contact,'amount':req.amount,'confirmation_token':token,'safety_check':'Recipient and amount validated. Explicit confirmation required.'}
+    global last_anomaly
+    contact = validate_payment(stored_contacts(), req.contact_id, req.amount)
+    anomaly = analyze_transaction(anomaly_history(), req.amount, datetime.utcnow(), contact['name'])
+    last_anomaly = {'contact': contact, 'amount': req.amount, 'anomaly': anomaly}
+    token = secrets.token_urlsafe(18)
+    pending[token] = {'contact': contact, 'amount': req.amount, 'anomaly': anomaly}
+    return {'contact':contact,'amount':req.amount,'confirmation_token':token,'anomaly':public_anomaly(anomaly),'safety_check':anomaly['recommended_action']}
+
 @app.post('/api/payments/confirm')
 def confirm_payment(req: PaymentConfirm):
-    item=pending.pop(req.confirmation_token,None)
-    if not item: raise HTTPException(400,'Confirmation expired or already used')
-    tx=add_transaction(item['contact']['id'], item['contact']['name'], item['amount']); return {'status':'completed','simulated':True,'transaction':tx}
+    item = pending.get(req.confirmation_token)
+    if not item:
+        raise HTTPException(400, 'Confirmation expired or already used')
+    if item['anomaly']['is_anomaly'] and not req.anomaly_acknowledged:
+        raise HTTPException(409, 'This unusual simulated payment requires explicit anomaly acknowledgment before confirmation')
+    pending.pop(req.confirmation_token, None)
+    tx = add_transaction(item['contact']['id'], item['contact']['name'], item['amount'])
+    return {'status':'completed','simulated':True,'transaction':tx,'anomaly':public_anomaly(item['anomaly'])}
 
 @app.get('/api/schemes')
 def get_schemes(): return {'schemes':schemes,'notice':'Sample references only. Verify current details on the official source.'}

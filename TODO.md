@@ -48,10 +48,19 @@
 - Profile contains user name, preferred language, basic profile information, safety preferences, a voice settings placeholder, and privacy/security section.
 - Future language options include English, Hindi, Kannada, and Telugu; actual multilingual voice functionality is not implemented in this MVP.
 
-## 8. Full-stack architecture and delivery documentation
+## 8. Transaction anomaly detection and stronger payment confirmation
+- Sahaay detects when a simulated payment is unusual compared with the user's normal transaction behavior and warns the user before the simulated payment is completed.
+- The anomaly detector uses a lightweight hybrid approach: a scikit-learn Isolation Forest trained only on historical simulated transaction data, plus deterministic safety rules for unusually large amounts, unusual transaction time, and unusual recent payment frequency.
+- The anomaly API `POST /api/transaction-anomaly-check` returns `anomaly_level`, `anomaly_score` from 0–100, `is_anomaly`, `reasons`, and `recommended_action`; scores classify as Normal for 0–39, Suspicious for 40–69, and High Risk for 70–100.
+- The existing payment flow remains user enters payment -> review payment -> safety/anomaly check -> normal confirmation or stronger confirmation for suspicious/high-risk payments -> explicit confirmation -> simulated transaction; the detector never directly approves or executes a payment.
+- A suspicious payment shows a minimal warning in the existing review modal and requires explicit acknowledgment; no transaction is created before confirmation, and confirmation creates only a simulated transaction.
+- Ask Sahaay can explain why the most recent payment was flagged using the backend anomaly result, without making the anomaly decision or executing a financial action.
+- Automated coverage verifies a normal ₹500 payment, a large ₹25,000 payment, several historical transactions, payment blocking before acknowledgment, creation only after acknowledgment, Ask explanation, Scam Check regression, frontend build, and backend/API health.
+
+## 9. Full-stack architecture and delivery documentation
 - The frontend is React with Tailwind CSS and the backend is modular FastAPI with PostgreSQL-ready models/schema for Users, Accounts, Transactions, Contacts, Government Schemes, and Safety Alerts.
 - Frontend and backend are clearly separated, with modular assistant, scam, payment, scheme, alert, and data-access services.
 - API endpoints exist for Ask Sahaay, transactions, account balance/dashboard data, scam checking, contacts, simulated payments, government schemes, safety alerts, and user profile.
 - The application runs in managed Preview with FastAPI serving the built React app and `/api/health`, while development instructions support separate frontend/backend processes.
 - README documentation explains dependency installation, environment variables, Gemini configuration, PostgreSQL setup, starting FastAPI, starting React/Vite, the project folder structure, important files, and the simulated-only security boundary.
-- No real banking integration, real money movement, advanced multilingual voice, advanced ML training, or complex RAG is attempted in this MVP.
+- No real banking integration, real money movement, advanced multilingual voice, complex RAG, or anomaly detection beyond the lightweight Isolation Forest plus deterministic rules is attempted in this MVP.
