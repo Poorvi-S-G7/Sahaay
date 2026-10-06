@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os, re, secrets
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,8 @@ from .db import database_enabled, database_mode, init_schema
 from .services.storage import add_transaction, anomaly_history, contacts as stored_contacts, dashboard as stored_dashboard, profile as stored_profile, safety_alerts as stored_alerts, transactions as stored_transactions, update_profile as stored_update_profile
 
 ROOT = Path(__file__).resolve().parents[2]
+logger = logging.getLogger('sahaay.voice')
+logger.setLevel(logging.INFO)
 def money(value: float) -> str:
     return f'₹{value:,.0f}'
 
@@ -73,15 +76,25 @@ def health(): return {'status':'ok','service':'sahaay-api','mode':'simulated','d
 async def transcribe_voice(file: UploadFile = File(...), language: str = 'English'):
     supported = {'English', 'Hindi', 'Kannada', 'Telugu'}
     if language not in supported:
+        logger.warning('voice_transcription_rejected reason=unsupported_language language=%s', language)
         raise HTTPException(400, 'Unsupported voice language')
-    if file.content_type not in {'audio/webm', 'audio/ogg', 'audio/wav', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a'}:
+    received_mime = (file.content_type or '').strip().lower()
+    normalized_mime = received_mime.split(';', 1)[0].strip()
+    extension = Path(file.filename or '').suffix.lower() or '<none>'
+    supported_mime = {'audio/webm', 'audio/ogg', 'audio/wav', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a'}
+    logger.warning('voice_transcription_received mime=%s normalized_mime=%s extension=%s language=%s', received_mime or '<missing>', normalized_mime or '<missing>', extension, language)
+    if normalized_mime not in supported_mime:
+        logger.warning('voice_transcription_rejected reason=unsupported_mime mime=%s extension=%s', received_mime or '<missing>', extension)
         raise HTTPException(415, 'Unsupported audio format. Please record again.')
     audio = await file.read()
+    logger.warning('voice_transcription_audio_ready mime=%s extension=%s size_bytes=%d conversion=not_required', normalized_mime, extension, len(audio))
     if not audio or len(audio) > 10 * 1024 * 1024:
+        logger.warning('voice_transcription_rejected reason=empty_or_too_large mime=%s extension=%s size_bytes=%d', normalized_mime, extension, len(audio))
         raise HTTPException(413, 'Recording is empty or too large. Please try a shorter recording.')
     api_url = os.getenv('MANUS_API_URL')
     api_key = os.getenv('MANUS_API_KEY')
     if not api_url or not api_key:
+        logger.error('voice_transcription_failed reason=missing_manus_runtime_configuration mime=%s extension=%s size_bytes=%d', normalized_mime, extension, len(audio))
         raise HTTPException(503, 'Voice transcription is not configured. You can still use Sahaay by typing.')
     prompt = f'Transcribe the user voice to text. The selected language is {language}. Preserve the words and numbers accurately.'
     try:
@@ -90,18 +103,27 @@ async def transcribe_voice(file: UploadFile = File(...), language: str = 'Englis
                 f'{api_url.rstrip("/")}/v1/audio/transcriptions',
                 headers={'Authorization': f'Bearer {api_key}'},
                 data={'model': 'whisper-1', 'prompt': prompt},
-                files={'file': (file.filename or 'recording.webm', audio, file.content_type)},
+                # Whisper accepts WebM/Opus; strip codec parameters from the
+                # multipart content type while preserving the actual WebM bytes.
+                files={'file': (file.filename or 'recording.webm', audio, normalized_mime)},
             )
         if response.status_code >= 400:
+            logger.error('voice_transcription_failed reason=provider_http_error status=%d mime=%s extension=%s size_bytes=%d', response.status_code, normalized_mime, extension, len(audio))
             raise HTTPException(502, 'Voice transcription is temporarily unavailable. Please try again or type your question.')
         payload = response.json()
         text = (payload.get('text') or '').strip()
         if not text:
+            logger.warning('voice_transcription_failed reason=empty_provider_transcript mime=%s extension=%s size_bytes=%d', normalized_mime, extension, len(audio))
             raise HTTPException(422, 'Could not understand that recording. Please try again.')
+        logger.info('voice_transcription_succeeded mime=%s extension=%s size_bytes=%d detected_language=%s', normalized_mime, extension, len(audio), payload.get('language') or language)
         return {'text': text, 'language': payload.get('language') or language}
     except HTTPException:
         raise
     except httpx.HTTPError:
+        logger.exception('voice_transcription_failed reason=provider_transport_error mime=%s extension=%s size_bytes=%d', normalized_mime, extension, len(audio))
+        raise HTTPException(502, 'Voice transcription is temporarily unavailable. Please try again or type your question.')
+    except (ValueError, TypeError, KeyError):
+        logger.exception('voice_transcription_failed reason=invalid_provider_response mime=%s extension=%s size_bytes=%d', normalized_mime, extension, len(audio))
         raise HTTPException(502, 'Voice transcription is temporarily unavailable. Please try again or type your question.')
 @app.get('/api/profile')
 def get_profile(): return stored_profile()

@@ -34,6 +34,7 @@ export class WebVoiceService implements VoiceService {
     const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find((type) => MediaRecorder.isTypeSupported(type))
     this.chunks = []
     this.recorder = new MediaRecorder(this.stream, mimeType ? { mimeType } : undefined)
+    console.debug('[Sahaay voice] MediaRecorder MIME type:', this.recorder.mimeType || '<browser default>')
     this.recorder.ondataavailable = (event) => {
       if (event.data.size > 0) this.chunks.push(event.data)
     }
@@ -63,8 +64,18 @@ export class WebVoiceService implements VoiceService {
 
   async transcribe(audio: Blob, language: SupportedLanguage): Promise<VoiceTranscript> {
     const form = new FormData()
-    const extension = audio.type.includes('ogg') ? 'recording.ogg' : 'recording.webm'
-    form.append('file', audio, extension)
+    const baseMime = (audio.type || 'audio/webm').split(';', 1)[0]
+    const extensionByMime: Record<string, string> = {
+      'audio/webm': 'recording.webm',
+      'audio/ogg': 'recording.ogg',
+      'audio/wav': 'recording.wav',
+      'audio/mpeg': 'recording.mp3',
+      'audio/mp4': 'recording.mp4',
+      'audio/x-m4a': 'recording.m4a',
+    }
+    const filename = extensionByMime[baseMime] || 'recording.webm'
+    console.debug('[Sahaay voice] Upload MIME type:', audio.type || '<missing>', 'filename:', filename, 'size:', audio.size)
+    form.append('file', audio, filename)
     form.append('language', language)
     const response = await fetch('/api/voice/transcribe', { method: 'POST', body: form })
     if (!response.ok) {
